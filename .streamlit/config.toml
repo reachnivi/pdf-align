@@ -1,0 +1,10 @@
+[server]
+# Large scanned books are big: allow uploads up to 2 GB.
+maxUploadSize = 2048
+headless = true
+
+[browser]
+gatherUsageStats = false
+
+[theme]
+primaryColor = "#2563eb"

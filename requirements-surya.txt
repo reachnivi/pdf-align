@@ -1,0 +1,5 @@
+# Optional: transformer-based OCR engine (better on very degraded or
+# non-Latin scans; GPU strongly recommended). Select it with --engine surya
+# or "OCR engine" in the code config. Pulls in PyTorch (~2 GB).
+-r requirements.txt
+surya-ocr>=0.6
