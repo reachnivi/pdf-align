@@ -14,18 +14,17 @@ Built for books with hundreds of pages. Pages are streamed through a process poo
 
 ## Quick start
 
-```bash
-# 1. system packages (see "Installation" for macOS / Windows)
-sudo apt-get install -y tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd fonts-dejavu-core
+You need Python 3.10+ and Tesseract. **On a Mac, follow [macOS setup](#macos-setup-apple-silicon--intel) below**.
+For Linux and Windows, see [Installation](#installation). Then:
 
-# 2. python packages (Python 3.10+)
-python -m venv .venv && source .venv/bin/activate
+```bash
+python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-# 3a. web UI
-streamlit run app.py            # http://localhost:8501
+# web UI -> http://localhost:8501
+streamlit run app.py
 
-# 3b. or command line
+# or the command line
 python -m pdf_align.cli scan.pdf clean.pdf --mode A
 python -m pdf_align.cli scan.pdf book.pdf  --mode B --page-size A4
 ```
@@ -35,6 +34,100 @@ Or with Docker:
 ```bash
 docker build -t pdf-align . && docker run -p 8501:8501 pdf-align
 ```
+
+## macOS setup (Apple Silicon & Intel)
+
+This works on macOS 12 or later, on both Apple Silicon (M1–M4) and Intel Macs. All Python dependencies ship
+native arm64 wheels, so there's nothing to compile. Run each block in **Terminal** in order.
+
+**1. Install Homebrew** (skip this if `brew --version` already works):
+
+```bash
+/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+```
+
+On Apple Silicon, add Homebrew to your shell so `brew`, `python3.12` and `tesseract` are found in every new
+terminal. Intel Macs use `/usr/local` and need no extra step.
+
+```bash
+echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
+```
+
+```bash
+eval "$(/opt/homebrew/bin/brew shellenv)"
+```
+
+**2. Install Python 3.12 and Tesseract.** The `python3` that ships with macOS (or the Xcode tools) is often
+3.9, which is too old for this app. Homebrew's `tesseract` already includes English and the `osd`
+orientation model.
+
+```bash
+brew install python@3.12 tesseract
+```
+
+Optional: OCR languages other than English, e.g. `--lang eng+deu`:
+
+```bash
+brew install tesseract-lang
+```
+
+Optional: DejaVu fonts for the nicest Mode B typography. Without them, the macOS built-in Arial is used.
+
+```bash
+brew install --cask font-dejavu
+```
+
+**3. Create a virtual environment and install the app.** Run this inside the cloned `pdf-align` folder:
+
+```bash
+python3.12 -m venv .venv
+```
+
+```bash
+source .venv/bin/activate
+```
+
+```bash
+pip install --upgrade pip && pip install -r requirements.txt
+```
+
+**4. Check the installation.** `tesseract --list-langs` must list `eng` and `osd`:
+
+```bash
+tesseract --version && tesseract --list-langs
+```
+
+```bash
+python -c "import pymupdf, cv2, pytesseract, reportlab, streamlit; print('all good', pytesseract.get_tesseract_version())"
+```
+
+**5. Run it.** Streamlit opens your browser at http://localhost:8501. Stop it with `Ctrl+C`.
+
+```bash
+streamlit run app.py
+```
+
+Next time, only activate the environment and run:
+
+```bash
+cd pdf-align && source .venv/bin/activate && streamlit run app.py
+```
+
+### macOS troubleshooting
+
+| Symptom | Fix |
+|---|---|
+| `TesseractNotFoundError` or "Tesseract not found" in the sidebar | Homebrew isn't on the `PATH` of the terminal that started Streamlit. Run `eval "$(/opt/homebrew/bin/brew shellenv)"` (step 1) and restart Streamlit. `which tesseract` should print `/opt/homebrew/bin/tesseract` (Apple Silicon) or `/usr/local/bin/tesseract` (Intel). |
+| `python3 --version` shows 3.9 / `ERROR: Package requires Python >=3.10` | Use `python3.12` explicitly when creating the venv (step 3). Delete an old `.venv` first with `rm -rf .venv`. |
+| `zsh: command not found: brew` | Finish step 1, then open a new Terminal window. |
+| `xcrun: error: invalid active developer path` | Install the command-line tools with `xcode-select --install`, then retry. |
+| Mac gets hot or slow, or "Your system has run out of application memory" | Each worker uses ~500 MB at 300 DPI. On 8 GB Macs, set **Worker processes** to 2–3 in the sidebar (or `--workers 2`), or use 200 DPI. |
+| Very first run is slow | macOS checks the freshly installed native libraries once; later runs are fast. |
+| Browser doesn't open | Open http://localhost:8501 manually. |
+
+**Docker alternative:** with [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
+installed, `docker build -t pdf-align . && docker run -p 8501:8501 pdf-align` works on both Apple Silicon
+and Intel. The base image is multi-arch. Native installs are faster than Docker on a Mac, though.
 
 ## The web UI
 
@@ -212,11 +305,11 @@ including its `osd` model, which is used for orientation detection.
 |---|---|
 | Ubuntu / Debian | `sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd fonts-dejavu-core` |
 | Fedora | `sudo dnf install tesseract tesseract-langpack-eng tesseract-osd dejavu-sans-fonts` |
-| macOS (Homebrew) | `brew install tesseract` (includes `osd` and `eng`) |
+| macOS | `brew install python@3.12 tesseract`: see the full [macOS setup](#macos-setup-apple-silicon--intel) above |
 | Windows | Install the [UB Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki), then add `C:\Program Files\Tesseract-OCR` to `PATH` |
 
-To add more languages, install e.g. `tesseract-ocr-deu` and pass `--lang eng+deu`, or set the language in
-the UI sidebar.
+To add more languages, install e.g. `tesseract-ocr-deu` (macOS: `brew install tesseract-lang`), then pass
+`--lang eng+deu` or set the language in the UI sidebar.
 
 **Optional: Surya OCR.** Install it with `pip install -r requirements-surya.txt`, then use `--engine surya`.
 Surya is a transformer OCR that does better on very degraded scans and many scripts, but it is much heavier

@@ -34,19 +34,37 @@ log = logging.getLogger(__name__)
 
 PAGE_SIZES_PT = {"A4": (595.276, 841.890), "Letter": (612.0, 792.0)}
 
-_FONT_CANDIDATES = [
-    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-    "/usr/share/fonts/dejavu/DejaVuSans.ttf",
-    "/Library/Fonts/Arial Unicode.ttf",
-    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
-    "C:/Windows/Fonts/arial.ttf",
+# Unicode TrueType fonts, best first. DejaVu is preferred everywhere (on
+# macOS: `brew install --cask font-dejavu`, which installs to ~/Library/Fonts);
+# otherwise fall back to fonts that ship with the OS.
+_FONT_DIRS_DEJAVU = [
+    "/usr/share/fonts/truetype/dejavu",         # Debian / Ubuntu
+    "/usr/share/fonts/dejavu",                  # Fedora / Arch
+    "/usr/share/fonts/dejavu-sans-fonts",       # Fedora (newer)
+    "~/Library/Fonts",                          # macOS, per-user (Homebrew cask)
+    "/Library/Fonts",                           # macOS, system-wide
+    "/opt/homebrew/share/fonts",                # macOS, Homebrew (Apple Silicon)
+    "/usr/local/share/fonts",                   # macOS (Intel Homebrew) / Linux
 ]
+_FONT_FALLBACKS = {
+    False: [
+        "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",  # macOS 10.15+
+        "/Library/Fonts/Arial Unicode.ttf",                      # older macOS
+        "C:/Windows/Fonts/arial.ttf",
+    ],
+    True: [
+        "/System/Library/Fonts/Supplemental/Arial Bold.ttf",     # macOS 10.15+
+        "/Library/Fonts/Arial Bold.ttf",                         # older macOS
+        "C:/Windows/Fonts/arialbd.ttf",
+    ],
+}
 
 
 def find_unicode_font(bold: bool = False) -> Optional[str]:
-    for p in _FONT_CANDIDATES:
-        if bold:
-            p = p.replace("DejaVuSans.ttf", "DejaVuSans-Bold.ttf").replace("arial.ttf", "arialbd.ttf")
+    """Path of a Unicode TTF for the text layer / reflow, or None (Helvetica)."""
+    name = "DejaVuSans-Bold.ttf" if bold else "DejaVuSans.ttf"
+    candidates = [os.path.join(os.path.expanduser(d), name) for d in _FONT_DIRS_DEJAVU]
+    for p in candidates + _FONT_FALLBACKS[bold]:
         if os.path.exists(p):
             return p
     return None
