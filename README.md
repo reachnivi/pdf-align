@@ -1,12 +1,14 @@
 # PDF-Align
 
 Turn large, badly scanned PDFs (crooked, sideways, yellowed, faded, noisy) into clean, straight,
-**searchable** PDFs. You can also rebuild the scan as a freshly typeset document with modern typography.
+**searchable** PDFs, or rebuild a scanned technical book as a **professionally typeset book**.
 
 | | |
 |---|---|
 | **Mode A · Visual deskew & enhance** | Keeps each page's original look. It straightens the page, whitens the paper, sharpens faded text and keeps photos in colour, then lays an invisible OCR text layer on top (select, search, copy). |
-| **Mode B · Full reflow & re-typeset** | Rebuilds the document on A4/Letter, with clean fonts, justified paragraphs, real tables, cropped figures and correct multi-column reading order. Running headers and page numbers from the scan are removed. |
+| **Mode B · Typeset as a book** | Reconstructs the book's structure (chapters, numbered sections, paragraphs, code listings, NOTE/TIP callouts, lists, figures and tables with captions) and typesets it like a classic computer book. You get a 7 × 9.19 in trim, mirrored margins, running heads, chapter openers on right-hand pages, a generated table of contents, PDF bookmarks, hyphenated justified text, and code in a monospace font with its indentation preserved. |
+
+![Mode B: a scanned page (left) and the typeset book page (right)](docs/mode_b.png)
 
 Built for books with hundreds of pages. Pages are streamed through a process pool, so memory stays flat no matter how long the document is.
 
@@ -57,12 +59,13 @@ echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 ```
 
-**2. Install Python 3.12 and Tesseract.** The `python3` that ships with macOS (or the Xcode tools) is often
-3.9, which is too old for this app. Homebrew's `tesseract` already includes English and the `osd`
-orientation model.
+**2. Install Python 3.12, Tesseract and Pango.**
+* The `python3` that ships with macOS (or the Xcode tools) is often 3.9, which is too old for this app.
+* Homebrew's `tesseract` already includes English and the `osd` orientation model.
+* **Pango** is the text-layout library used by the Mode B book typesetter (WeasyPrint).
 
 ```bash
-brew install python@3.12 tesseract
+brew install python@3.12 tesseract pango
 ```
 
 Optional: OCR languages other than English, e.g. `--lang eng+deu`:
@@ -71,11 +74,21 @@ Optional: OCR languages other than English, e.g. `--lang eng+deu`:
 brew install tesseract-lang
 ```
 
-Optional: DejaVu fonts for the nicest Mode B typography. Without them, the macOS built-in Arial is used.
+Optional: **more accurate OCR models** (`tessdata_best`). They are slower, but make noticeably fewer
+mistakes on poor scans. Download them into a folder of your own and point the app at it:
 
 ```bash
-brew install --cask font-dejavu
+mkdir -p ~/tessdata_best && cp "$(brew --prefix)/share/tessdata/osd.traineddata" ~/tessdata_best/
 ```
+
+```bash
+curl -L -o ~/tessdata_best/eng.traineddata https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata
+```
+
+Then add `--tessdata-dir ~/tessdata_best` on the command line.
+
+The book fonts (Source Serif 4, Source Sans 3 and Source Code Pro, under the SIL Open Font License) ship
+inside the app, so there's nothing to install for them.
 
 **3. Create a virtual environment and install the app.** Run this inside the cloned `pdf-align` folder:
 
@@ -124,6 +137,7 @@ cd pdf-align && source .venv/bin/activate && streamlit run app.py
 | Mac gets hot or slow, or "Your system has run out of application memory" | Each worker uses ~500 MB at 300 DPI. On 8 GB Macs, set **Worker processes** to 2–3 in the sidebar (or `--workers 2`), or use 200 DPI. |
 | Very first run is slow | macOS checks the freshly installed native libraries once; later runs are fast. |
 | Browser doesn't open | Open http://localhost:8501 manually. |
+| `OSError: cannot load library 'libgobject-2.0-0'` / "WeasyPrint unavailable … used the basic ReportLab layout" | Pango is missing or not found. Run `brew install pango`. If it's already installed on Apple Silicon, run `export DYLD_FALLBACK_LIBRARY_PATH=/opt/homebrew/lib` in the same terminal before `streamlit run app.py` (add it to `~/.zprofile` to make it permanent). |
 
 **Docker alternative:** with [Docker Desktop for Mac](https://www.docker.com/products/docker-desktop/)
 installed, `docker build -t pdf-align . && docker run -p 8501:8501 pdf-align` works on both Apple Silicon
@@ -151,11 +165,17 @@ pdf-align/
 │   ├── models.py           # Word / Line / Block / PageLayout / PageResult (JSON round-trip)
 │   ├── deskew.py           # CV: render, blank check, orientation, skew, rotate, enhance
 │   ├── layout_engine.py    # OCR engines, tables, figures, XY-cut reading order, block types
-│   ├── pdf_builder.py      # Mode A (PyMuPDF) and Mode B (ReportLab) builders
+│   ├── pdf_builder.py      # Mode A (PyMuPDF) builder, Mode B BookBuilder (+ ReportLab fallback)
+│   ├── structure.py        # whole-book structure: chapters, sections, paragraphs, lists, captions…
+│   ├── textfix.py          # OCR clean-up: de-hyphenation, ligatures, conservative word repair
+│   ├── typeset/            # Mode B typesetter: book.html.j2 + book.css (paged media) + fonts/ (OFL)
 │   ├── pipeline.py         # streaming orchestration, process pool, recovery, cleanup
 │   └── cli.py              # command-line front-end
+├── tools/build_fonts.py    # regenerates the bundled static font files
 ├── tests/
 │   ├── synth.py            # synthetic "bad scan" generator (skew, fading, noise, rotation)
+│   ├── techbook.py         # synthetic scanned *technical book* with ground truth
+│   ├── test_book.py        # Mode B structure + typesetting tests
 │   ├── conftest.py
 │   ├── test_deskew.py
 │   ├── test_layout.py
@@ -245,13 +265,60 @@ Each worker process runs these steps for one page:
     font is used for non-Latin-1 words.
   * The document is **flushed to disk every 25 pages** (incremental save and reopen), so the builder's memory
     stays flat.
-* **Mode B:**
-  * ReportLab Platypus renders the content with DejaVu Sans when available and Helvetica otherwise.
-  * Text: justified body text with 1.45× leading, a heading hierarchy, and bulleted lists.
-  * Tables: zebra-striped, with a header row that repeats across page breaks.
-  * Figures: embedded as cropped images.
-  * A cross-page pass removes **running headers, footers and page numbers** that repeat across pages,
-    **joins paragraphs split by page breaks**, and **de-hyphenates** words like "infor-/mation".
+* **Mode B:** see the next section.
+
+### 3b. Mode B: rebuilding and typesetting a book (`structure.py`, `typeset/`)
+
+**Page analysis (in the workers):**
+* **Code listings** are found from three cues:
+  * how densely the text uses code symbols;
+  * keywords and patterns like `def`, `->`, `name(args)`;
+  * the tinted panel behind them.
+
+  They are then re-OCR'd with the dictionaries switched off, so identifiers aren't "corrected" into English
+  words. Each line is rebuilt on the **monospace character grid**, which brings back the exact indentation
+  and spacing (Tesseract drops both).
+* **Tinted panels** (code backgrounds, sidebars) are detected against a robust model of the paper's
+  lighting. Text inside them is binarised for OCR, and the tint is painted back for Mode A.
+* **Boxed frames** become callouts or sidebars.
+* **Large bold titles** keep solid strokes (Sauvola thresholding would hollow them out).
+* **Ruling lines** are only erased when they are both long and thin, so letter stems survive.
+
+**Whole-book structure (parent process, `structure.py`):** statistics gathered from all pages drive these
+decisions:
+* **Running heads and folios** are dropped. The test uses their position, isolation and content (page
+  numbers, "CHAPTER", section text), not just repetition.
+* **Chapters** come from "CHAPTER n" labels and big title type. **Sections** come from numbering
+  (`1.2`, `1.2.3`), with bold or size as supporting evidence.
+* **Paragraphs** are rebuilt across Tesseract blocks, columns and pages:
+  * a short last line or a first-line indent ends a paragraph;
+  * text that runs on across a page break is joined.
+* **Lists:** bullets are recognised even when OCR reads them as `e`/`«`/`o`. Numbered items must form a
+  sequence, and continuation lines are recognised by their hanging indent.
+* **Captions** attach to the right object: `Listing`/`Example` and `Table` captions look below
+  themselves, `Figure` captions look above.
+* **Callouts** come from NOTE/TIP/WARNING/CAUTION labels or a boxed frame.
+* **Prose clean-up** (`textfix.py`):
+  * de-hyphenation and ligature/quote normalisation;
+  * fixes for confusable glyphs (`Smal!`→`Small`, `rnodern`→`modern`);
+  * dictionary correction, but only for words Tesseract itself was unsure about. Code is never touched.
+
+**Typesetting (`typeset/`):** WeasyPrint renders semantic HTML with a CSS paged-media stylesheet:
+* **Pages:** 7 × 9.19 in trim (also 7.375 × 9.25 in, A4 or Letter) with mirrored inner and outer margins.
+* **Running heads:** chapter on the verso, section on the recto. Chapter openers have none, and their folio
+  sits at the foot.
+* **Type:** Source Serif 4 body at 10/13.6 pt, justified, with Pyphen hyphenation, kerning and ligatures.
+  Headings are in Source Sans 3.
+* **Code:** Source Code Pro on a tinted panel with a rule, with the listing caption above.
+* **Other elements:** labelled callout boxes, booktabs-style tables, and figures with captions.
+* **Front matter:** a title page and a table of contents with dot leaders and real page numbers.
+* **PDF bookmarks** for every chapter and section.
+
+The whole look lives in `pdf_align/typeset/book.css`. Edit it to retheme the book. The intermediate HTML
+can be written out with `--emit-html book.html` for inspection.
+
+If WeasyPrint or Pango isn't installed, Mode B automatically falls back to a simpler ReportLab layout and
+says so.
 
 ### 4. Streaming and parallelism (`pipeline.py`)
 
@@ -286,26 +353,27 @@ input.pdf ──► [ sliding window of N pages in flight ] ──► ProcessPoo
 These figures come from a synthetic 120-page bad scan (111 MB input). It has random ±8° skew, sideways pages,
 tables, photos, two-column pages and 20 blank pages. The run used 4 CPU cores and 4 workers at 300 DPI.
 
-| | Mode A | Mode B |
+| | Mode A | Mode B (book) |
 |---|---|---|
-| Time | ~1.0 s / page (≈2 min total) | ~1.0 s / page |
-| Output size | 30 MB, searchable | 19 MB, 104 typeset pages |
-| Peak RAM (whole process tree) | ≈2.4 GB | ≈2.1 GB |
-| Parent process RAM | flat ≈120 MB for the whole run | flat |
+| Time | ~1.0 s / page (≈2 min total) | ~1.2 s / page (≈2.4 min for a 120-page technical book, typesetting included) |
+| Output size | 30 MB, searchable | typeset book with contents and bookmarks |
+| Peak RAM (whole process tree) | ≈2.4 GB | ≈2 GB |
+| Parent process RAM | flat ≈120 MB for the whole run | flat ≈85 MB, ≈300 MB during final typesetting |
 
 Memory is roughly `workers × ~500 MB` (one 300-DPI page plus OCR) and **does not grow with page count**.
 On a small machine, lower *Worker processes* or use 200 DPI.
 
 ## Installation
 
-PyMuPDF renders PDFs itself, so **Poppler is not needed**. The only system dependency is **Tesseract**,
-including its `osd` model, which is used for orientation detection.
+PyMuPDF renders PDFs itself, so **Poppler is not needed**. The system dependencies are:
+* **Tesseract**, including its `osd` model, which is used for orientation detection;
+* **Pango**, which the Mode B book typesetter (WeasyPrint) uses.
 
 | OS | Command |
 |---|---|
-| Ubuntu / Debian | `sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd fonts-dejavu-core` |
-| Fedora | `sudo dnf install tesseract tesseract-langpack-eng tesseract-osd dejavu-sans-fonts` |
-| macOS | `brew install python@3.12 tesseract`: see the full [macOS setup](#macos-setup-apple-silicon--intel) above |
+| Ubuntu / Debian | `sudo apt-get install tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0` |
+| Fedora | `sudo dnf install tesseract tesseract-langpack-eng tesseract-osd pango` |
+| macOS | `brew install python@3.12 tesseract pango`: see the full [macOS setup](#macos-setup-apple-silicon--intel) above |
 | Windows | Install the [UB Mannheim build](https://github.com/UB-Mannheim/tesseract/wiki), then add `C:\Program Files\Tesseract-OCR` to `PATH` |
 
 To add more languages, install e.g. `tesseract-ocr-deu` (macOS: `brew install tesseract-lang`), then pass
@@ -322,6 +390,15 @@ Tesseract. Blocks are rebuilt geometrically from Surya's line boxes.
 python -m pdf_align.cli INPUT OUTPUT [--mode A|B] [--dpi 300] [--page-size original|A4|Letter]
                         [--lang eng] [--engine tesseract|surya] [--workers N] [--batch-size 8]
                         [--strength 1.0] [--no-ocr] [--no-binarize] [--drop-blank] [--jpeg-quality 80]
+                        [--trim 7x9.19in|7.375x9.25in|A4|Letter] [--title T] [--author A]
+                        [--chapters-any-page] [--no-front-matter] [--no-spellfix]
+                        [--tessdata-dir DIR] [--emit-html FILE]
+```
+
+For example, to typeset a scanned book:
+
+```bash
+python -m pdf_align.cli scan.pdf book.pdf --mode B --title "My Book" --author "Jane Doe"
 ```
 
 Use it from Python:
@@ -329,7 +406,7 @@ Use it from Python:
 ```python
 from pdf_align import PipelineConfig, run_pipeline
 
-report = run_pipeline("scan.pdf", "clean.pdf", PipelineConfig(mode="B", page_size="Letter"),
+report = run_pipeline("scan.pdf", "book.pdf", PipelineConfig(mode="B", trim="7x9.19in", title="My Book"),
                       progress_cb=lambda done, total, msg, page: print(done, total, msg))
 print(report.mean_abs_skew, [p.index for p in report.errors])
 ```
@@ -351,12 +428,28 @@ The test suite generates its own degraded scans (`tests/synth.py`). It checks:
 * exact ruled-table reconstruction;
 * figure crops and JSON round-trips;
 * end-to-end output in both modes: searchability, page order, progress callbacks;
+* **Mode B against a synthetic scanned technical book** (`tests/techbook.py`) with ground truth:
+  * chapters and numbered sections exact;
+  * paragraph count;
+  * prose word error rate under 1 %;
+  * running heads removed;
+  * code listings with exact indentation;
+  * captions attached to the right objects;
+  * lists, the NOTE callout, tables and figures;
+  * the typeset PDF's trim size, embedded fonts and bookmarks;
+  * TOC page numbers, chapter openers on odd pages without running heads, and text inside the margins;
+  * the ReportLab fallback;
 * that temp directories are cleaned up;
 * rejection of encrypted and non-PDF input.
 
 ## Limitations and tips
 
 * Borderless tables are found heuristically. Complex merged-cell tables are reproduced best in Mode A.
-* Mode B is only as good as the OCR. For very poor scans or non-Latin scripts, try Surya or a higher DPI.
+* Mode B is only as good as the OCR. For very poor scans, use the `tessdata_best` models (see macOS setup),
+  Surya, or a higher DPI.
+* Inline styling (bold or italic words, inline `code` inside sentences) isn't recovered from the scan yet.
+  Block-level structure is.
+* Structure detection is tuned for typical technical-book layouts. Unusual designs (side notes, multi-column
+  reference pages) may need threshold tuning in `structure.py`.
 * Handwriting isn't recognised as text. In Mode A it is preserved visually.
 * A 180° flip is only applied when OSD is confident. Text-free upside-down pages are left as they are.

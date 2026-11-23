@@ -1,0 +1,144 @@
+/* ==========================================================================
+   pdf-align · technical-book theme
+   A classic computer-book design: serif body, sans display type, mono code,
+   7 x 9.19 in trim with mirrored margins, running heads, chapter openers.
+   Fonts: Source Serif 4 / Source Sans 3 / Source Code Pro (SIL OFL 1.1).
+   ========================================================================== */
+
+/* ---------------------------------------------------------------- fonts */
+@font-face { font-family: "BookSerif"; src: url("fonts/SourceSerif4-Regular.ttf"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "BookSerif"; src: url("fonts/SourceSerif4-Italic.ttf"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "BookSerif"; src: url("fonts/SourceSerif4-Semibold.ttf"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "BookSerif"; src: url("fonts/SourceSerif4-Bold.ttf"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "BookSerif"; src: url("fonts/SourceSerif4-BoldItalic.ttf"); font-weight: 700; font-style: italic; }
+@font-face { font-family: "BookSans"; src: url("fonts/SourceSans3-Regular.ttf"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "BookSans"; src: url("fonts/SourceSans3-Italic.ttf"); font-weight: 400; font-style: italic; }
+@font-face { font-family: "BookSans"; src: url("fonts/SourceSans3-Semibold.ttf"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "BookSans"; src: url("fonts/SourceSans3-Bold.ttf"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "BookMono"; src: url("fonts/SourceCodePro-Regular.ttf"); font-weight: 400; font-style: normal; }
+@font-face { font-family: "BookMono"; src: url("fonts/SourceCodePro-Semibold.ttf"); font-weight: 600; font-style: normal; }
+@font-face { font-family: "BookMono"; src: url("fonts/SourceCodePro-Bold.ttf"); font-weight: 700; font-style: normal; }
+@font-face { font-family: "BookMono"; src: url("fonts/SourceCodePro-Italic.ttf"); font-weight: 400; font-style: italic; }
+
+/* ---------------------------------------------------------------- page */
+/* The @page size and margins are injected by render.py (trim option). */
+@page {
+  @top-left   { font-family: "BookSans"; font-size: 7.8pt; letter-spacing: .04em; color: #555; vertical-align: bottom; padding-bottom: 10pt; }
+  @top-right  { font-family: "BookSans"; font-size: 7.8pt; letter-spacing: .04em; color: #555; vertical-align: bottom; padding-bottom: 10pt; }
+}
+@page :left {
+  @top-left  { content: counter(page) "\2003\2003" string(chapter, first); }
+}
+@page :right {
+  @top-right { content: string(section, first) "\2003\2003" counter(page); }
+}
+/* Chapter openers: no running head, folio centred at the foot. */
+@page :nth(1 of opener) {   /* first page of every chapter */
+  @top-left  { content: none; }
+  @top-right { content: none; }
+  @bottom-center { content: counter(page); font-family: "BookSans"; font-size: 7.8pt; color: #555; }
+}
+@page front {
+  @top-left  { content: none; }
+  @top-right { content: none; }
+}
+@page :blank {
+  @top-left  { content: none; }
+  @top-right { content: none; }
+  @bottom-center { content: none; }
+}
+
+/* ---------------------------------------------------------------- base */
+html { font-family: "BookSerif", Georgia, serif; font-size: 10pt; line-height: 13.6pt; color: #1a1a1a;
+       font-variant-ligatures: common-ligatures; font-kerning: normal; }
+body { margin: 0; }
+p { margin: 0 0 6.5pt; text-align: justify; hyphens: auto; hyphenate-limit-chars: 6 3 3;
+    hyphenate-limit-zone: 8%; orphans: 2; widows: 2; }
+
+/* ---------------------------------------------------------------- front matter */
+.titlepage { page: front; break-after: right; padding-top: 2.2in; text-align: left; }
+.tp-rule { width: 1.2in; height: 4pt; background: #9b2f2f; margin-bottom: 18pt; }
+.book-title { font-family: "BookSans"; font-weight: 700; font-size: 30pt; line-height: 34pt; margin: 0 0 14pt;
+              bookmark-level: none; string-set: none; letter-spacing: -.01em; }
+.book-author { font-family: "BookSans"; font-size: 14pt; color: #333; margin: 0; }
+.book-note { font-family: "BookSans"; font-size: 8.5pt; color: #777; margin-top: 3.4in; letter-spacing: .08em;
+             text-transform: uppercase; }
+
+.toc { page: front; break-after: right; }
+.toc-title { font-family: "BookSans"; font-weight: 700; font-size: 22pt; margin: 0.6in 0 22pt; bookmark-level: 1; }
+.toc ol { list-style: none; margin: 0; padding: 0; }
+.toc-ch { margin: 0 0 7pt; }
+.toc-ch > a { font-family: "BookSans"; font-weight: 600; font-size: 10.5pt; }
+.toc-ch ol { margin: 3pt 0 0 0; }
+.toc li li { font-size: 9.5pt; line-height: 13pt; }
+.toc li.toc-l2 { padding-left: 2.1em; }
+.toc li.toc-l3 { padding-left: 4.2em; font-size: 9pt; color: #333; }
+.toc a { color: inherit; text-decoration: none; }
+.toc a::after { content: leader(". ") target-counter(attr(href), page); color: #555; }
+.toc-num { display: inline-block; width: 2.1em; color: #9b2f2f; }
+.toc-snum { display: inline-block; min-width: 2.6em; color: #555; }
+
+.frontmatter { page: front; }
+
+/* ---------------------------------------------------------------- chapters */
+.chapter { page: opener; break-before: right; }
+.any-side .chapter { break-before: page; }
+.opener { padding-top: 1.05in; margin-bottom: 30pt; }
+.ch-label { font-family: "BookSans"; font-weight: 600; font-size: 10pt; letter-spacing: .18em;
+            text-transform: uppercase; color: #9b2f2f; margin-bottom: 8pt; }
+.opener h1 { font-family: "BookSans"; font-weight: 700; font-size: 27pt; line-height: 31pt; margin: 0;
+             padding-bottom: 14pt; border-bottom: 2.2pt solid #1a1a1a; letter-spacing: -.005em;
+             string-set: chapter attr(data-runhead), section attr(data-runhead); bookmark-level: 1; }
+
+/* ---------------------------------------------------------------- headings */
+h2, h3, h4 { font-family: "BookSans"; color: #111; break-after: avoid; page-break-after: avoid;
+             hyphens: manual; text-align: left; }
+h2 { font-weight: 700; font-size: 15pt; line-height: 19pt; margin: 22pt 0 8pt;
+     string-set: section attr(data-runhead); bookmark-level: 2; bookmark-label: attr(data-runhead); }
+h3 { font-weight: 600; font-size: 12pt; line-height: 15.5pt; margin: 16pt 0 6pt; bookmark-level: 3;
+     bookmark-label: attr(data-runhead); }
+h4 { font-weight: 600; font-style: italic; font-size: 10.5pt; margin: 12pt 0 4pt; bookmark-level: 4; }
+.secnum { color: #9b2f2f; margin-right: .55em; font-weight: 600; }
+
+/* ---------------------------------------------------------------- lists */
+ul, ol { margin: 4pt 0 9pt; padding-left: 1.6em; }
+li { margin: 0 0 3pt; text-align: justify; hyphens: auto; padding-left: .2em; }
+ul { list-style-type: "\2022\00a0\00a0"; }
+ul > li::marker { color: #9b2f2f; }
+ol > li::marker { color: #9b2f2f; font-weight: 600; }
+
+/* ---------------------------------------------------------------- code */
+.listing { margin: 10pt 0 12pt; }
+.listing-caption { font-family: "BookSans"; font-size: 8.6pt; line-height: 11pt; margin-bottom: 4pt;
+                   break-after: avoid; color: #222; }
+pre.code { font-family: "BookMono", "DejaVu Sans Mono", monospace; font-size: 8.3pt; line-height: 11.2pt;
+           background: #f3f3f0; border-left: 2.5pt solid #9b2f2f; padding: 7pt 9pt 7pt 10pt; margin: 0;
+           white-space: pre-wrap; overflow-wrap: anywhere; hyphens: none; text-align: left;
+           orphans: 3; widows: 3; tab-size: 4; font-variant-ligatures: none; }
+
+/* ---------------------------------------------------------------- callouts */
+.callout { border: .6pt solid #9a9a9a; border-radius: 3pt; padding: 7pt 10pt 3pt; margin: 11pt 0 13pt;
+           background: #fafaf8; break-inside: avoid; }
+.callout p { font-size: 9.3pt; line-height: 12.6pt; margin: 0 0 4pt; }
+.callout-label { font-family: "BookSans"; font-weight: 700; font-size: 8pt; letter-spacing: .14em;
+                 text-transform: uppercase; color: #555; margin-bottom: 3pt; }
+.callout-warning, .callout-caution { border-color: #9b2f2f; border-left-width: 3pt; }
+.callout-warning .callout-label, .callout-caution .callout-label { color: #9b2f2f; }
+.callout-tip { border-color: #4a7a4a; }
+.callout-tip .callout-label { color: #3b6b3b; }
+
+/* ---------------------------------------------------------------- figures */
+figure { margin: 12pt 0 14pt; text-align: center; break-inside: avoid; }
+figure img { max-width: 100%; max-height: 4.6in; image-resolution: 300dpi; }
+figcaption { font-family: "BookSans"; font-size: 8.6pt; line-height: 11pt; margin-top: 6pt; text-align: left; color: #222; }
+.cap-label { font-weight: 700; margin-right: .35em; }
+
+/* ---------------------------------------------------------------- tables */
+table { border-collapse: collapse; width: 100%; margin: 10pt 0 14pt; font-size: 9pt; line-height: 11.8pt;
+        border-top: 1pt solid #1a1a1a; border-bottom: 1pt solid #1a1a1a; }
+caption { caption-side: top; font-family: "BookSans"; font-size: 8.6pt; text-align: left; margin-bottom: 5pt; color: #222; }
+thead { display: table-header-group; }
+th { font-family: "BookSans"; font-weight: 600; text-align: left; padding: 4pt 6pt; border-bottom: .6pt solid #1a1a1a; }
+td { padding: 3.5pt 6pt; vertical-align: top; text-align: left; hyphens: auto; }
+tbody tr + tr td { border-top: .3pt solid #d6d6d0; }
+tr { break-inside: avoid; }

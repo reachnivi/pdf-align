@@ -25,7 +25,9 @@ from pdf_align.pipeline import PDFInputError, preview_pages, run_pipeline
 
 @st.cache_data(show_spinner=False, max_entries=6)
 def _preview(path: str, digest: str, cfg_dict: dict):
-    preview_cfg = PipelineConfig(**{**cfg_dict, "workers": min(2, cfg_dict["workers"])})
+    # Mode B preview: skip title page / contents so the first *body* pages show.
+    preview_cfg = PipelineConfig(**{**cfg_dict, "workers": min(2, cfg_dict["workers"]),
+                                    "front_matter": False, "chapters_on_right": False})
     return preview_pages(path, preview_cfg, pages=(0, 1))
 
 
@@ -64,17 +66,31 @@ def main() -> None:
         st.header("⚙️ Settings")
         mode_label = st.radio(
             "Output mode",
-            ["A · Visual deskew & enhance", "B · Full reflow & re-typeset"],
+            ["A · Visual deskew & enhance", "B · Typeset as a book"],
+            index=1,
             help="A keeps the original page look (straightened, whitened) with an invisible, searchable "
-                 "OCR text layer. B rebuilds the document with clean fonts, justified paragraphs and real tables.",
+                 "OCR text layer. B rebuilds the scan as a professionally typeset technical book: chapters, "
+                 "running heads, code listings, callouts, figures, tables and a table of contents.",
         )
         mode = "A" if mode_label.startswith("A") else "B"
 
-        page_size = st.selectbox(
-            "Output page size",
-            ["original", "A4", "Letter"] if mode == "A" else ["A4", "Letter"],
-            help="Mode A can keep each scan's size or fit pages onto a standard size.",
-        )
+        title = author = ""
+        trim, chapters_on_right, spellfix = "7x9.19in", True, True
+        page_size = "original"
+        if mode == "A":
+            page_size = st.selectbox("Output page size", ["original", "A4", "Letter"],
+                                     help="Keep each scan's size or fit pages onto a standard size.")
+        else:
+            trim = st.selectbox(
+                "Book trim size", ["7x9.19in", "7.375x9.25in", "A4", "Letter"],
+                format_func=lambda t: {"7x9.19in": "7 × 9.19 in (technical book)",
+                                       "7.375x9.25in": "7.375 × 9.25 in", "A4": "A4", "Letter": "US Letter"}[t])
+            title = st.text_input("Book title", "", placeholder="from PDF metadata / file name")
+            author = st.text_input("Author", "")
+            chapters_on_right = st.toggle("Chapters start on right-hand pages", value=True,
+                                          help="Like a printed book. Off: chapters start on the next page.")
+            spellfix = st.toggle("Repair OCR errors in prose", value=True,
+                                 help="Conservative fixes (e.g. 'Smal!' → 'Small'); code is never touched.")
         dpi = st.select_slider("Scan resolution (DPI)", options=[150, 200, 300, 400], value=300)
         strength = st.slider("Enhancement strength", 0.25, 2.0, 1.0, 0.25,
                              help="Higher = whiter paper and darker faded text.")
@@ -99,6 +115,8 @@ def main() -> None:
         mode=mode, page_size=page_size, dpi=dpi, enhance_strength=strength, binarize_text=binarize,
         ocr=ocr and tess_ok, ocr_lang=lang.strip() or "eng", workers=workers, batch_size=batch,
         blank_policy="drop" if drop_blank else "keep", page_timeout_s=int(timeout),
+        trim=trim, title=title.strip(), author=author.strip(), chapters_on_right=chapters_on_right,
+        spellfix=spellfix,
     )
     if mode == "B" and not cfg.ocr:
         st.warning("Mode B needs OCR to rebuild text. Enable OCR or switch to Mode A.")
@@ -168,7 +186,7 @@ def main() -> None:
                 detail = {"ok": f"skew corrected {res.skew_deg:+.2f}°"
                                 + (f", rotated {res.orientation_deg}°" if res.orientation_deg else ""),
                           "blank": "blank page", "error": f"⚠️ {res.message[:80]}"}[res.status]
-            label = f"Processed · page {pv['index'] + 1}" if mode == "A" else f"Re-typeset · output page {k + 1}"
+            label = f"Processed · page {pv['index'] + 1}" if mode == "A" else f"Typeset · book page {k + 1}"
             st.markdown(f"<div class='pa-cap'>{label} · {detail}</div>", unsafe_allow_html=True)
 
     # --------------------------------------------------------------------------
@@ -216,6 +234,8 @@ def main() -> None:
         m3.metric("Blank pages", len(rep.blanks))
         m4.metric("Errors", len(rep.errors))
         m5.metric("Time", f"{rep.seconds:.1f}s")
+        if getattr(rep, "warning", ""):
+            st.warning(rep.warning)
         if rep.errors:
             st.warning("Some pages could not be fully processed; they were kept as original images or "
                        "placeholders:\n\n" + "\n".join(f"- page {p.index + 1}: {p.message}" for p in rep.errors[:20]))

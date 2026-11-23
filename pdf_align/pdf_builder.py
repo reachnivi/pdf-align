@@ -72,7 +72,7 @@ def find_unicode_font(bold: bool = False) -> Optional[str]:
 
 def make_builder(cfg: PipelineConfig, output_path: str, work_dir: str):
     if cfg.mode == "B":
-        return ReflowPDFBuilder(output_path, cfg, work_dir)
+        return BookBuilder(output_path, cfg, work_dir)
     return VisualPDFBuilder(output_path, cfg, work_dir)
 
 
@@ -387,7 +387,7 @@ class ReflowPDFBuilder:
         from reportlab.lib.units import cm
         from reportlab.platypus import PageBreak, Paragraph, SimpleDocTemplate
 
-        size = PAGE_SIZES_PT.get(self.cfg.page_size, PAGE_SIZES_PT["A4"])
+        size = PAGE_SIZES_PT.get(self.cfg.page_size) or PAGE_SIZES_PT.get(self.cfg.trim) or PAGE_SIZES_PT["A4"]
         margin = 2.2 * cm
         st = self._styles()
         frame_w, frame_h = size[0] - 2 * margin, size[1] - 2 * margin
@@ -457,4 +457,51 @@ class ReflowPDFBuilder:
                                 topMargin=margin, bottomMargin=margin,
                                 title="Re-typeset document", creator="pdf-align Mode B")
         doc.build(story, onFirstPage=on_page, onLaterPages=on_page)
+        return self.output_path
+
+
+# =============================================================================
+# Mode B (default): professional book typesetting
+# =============================================================================
+
+class BookBuilder:
+    """Whole-book structure reconstruction + CSS paged-media typesetting.
+
+    ``close()`` runs ``structure.build_book`` over every page layout and
+    renders the result with WeasyPrint (``typeset.render_pdf``). If WeasyPrint
+    or its native Pango libraries are unavailable, it falls back to the
+    simpler ReportLab reflow so the user still gets a document.
+    """
+
+    def __init__(self, output_path: str, cfg: PipelineConfig, work_dir: str):
+        self.output_path = output_path
+        self.cfg = cfg
+        self.work_dir = work_dir
+        self.results: list[PageResult] = []
+        self.engine = "weasyprint"
+        self.warning = ""
+
+    def add_page(self, res: PageResult) -> None:
+        self.results.append(res)
+
+    def close(self) -> str:
+        from .structure import build_book
+
+        book = build_book(self.results, title=self.cfg.title, author=self.cfg.author, spellfix=self.cfg.spellfix)
+        with open(os.path.join(self.work_dir, "book.json"), "w", encoding="utf-8") as fh:
+            fh.write(book.to_json())
+        try:
+            from .typeset import render_pdf
+
+            render_pdf(book, self.output_path, trim=self.cfg.trim, chapters_on_right=self.cfg.chapters_on_right,
+                       lang=(self.cfg.ocr_lang or "eng")[:2] if self.cfg.ocr_lang.startswith("eng") else "en",
+                       html_out=self.cfg.html_out or None, front_matter=self.cfg.front_matter)
+        except (ImportError, OSError) as exc:
+            self.engine = "reportlab"
+            self.warning = (f"WeasyPrint unavailable ({str(exc).splitlines()[0][:120]}); "
+                            "used the basic ReportLab layout. Install Pango for book typesetting (see README).")
+            log.warning(self.warning)
+            fallback = ReflowPDFBuilder(self.output_path, self.cfg, self.work_dir)
+            fallback.results = self.results
+            fallback.close()
         return self.output_path

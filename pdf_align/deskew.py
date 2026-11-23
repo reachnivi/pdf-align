@@ -427,6 +427,8 @@ class EnhanceResult:
     ink: np.ndarray                   # uint8 binary mask, ink = 255
     figure_boxes: list[tuple[int, int, int, int]] = field(default_factory=list)
     bilevel: bool = True              # True if `image` is pure black & white
+    gray: Optional[np.ndarray] = None  # globally normalised grayscale
+    panels: list[tuple[int, int, int, int]] = field(default_factory=list)  # tinted text panels
 
 
 def sauvola(gray: np.ndarray, window: int, k: float = 0.2, R: float = 128.0) -> np.ndarray:
@@ -493,7 +495,70 @@ def global_normalize(gray: np.ndarray) -> np.ndarray:
     return np.clip(gray.astype(np.float32) * (255.0 / paper), 0, 255).astype(np.uint8)
 
 
-def find_figure_regions(gnorm: np.ndarray, ink: np.ndarray) -> list[tuple[int, int, int, int]]:
+def _paper_surface(img: np.ndarray) -> np.ndarray:
+    """Robust quadratic fit of the paper brightness (models vignetting and
+    uneven lighting). Only bright pixels take part, re-fitted twice without
+    pixels that fall clearly below the surface (panels, figures)."""
+    h, w = img.shape
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    xx /= w
+    yy /= h
+    A = np.stack([np.ones_like(xx), xx, yy, xx * xx, xx * yy, yy * yy], -1).reshape(-1, 6)
+    z = img.reshape(-1)
+    sel = z >= np.percentile(z, 50)
+    for _ in range(3):
+        coef, *_ = np.linalg.lstsq(A[sel], z[sel], rcond=None)
+        fit = A @ coef
+        sel = sel & (z > fit - 6)
+    return fit.reshape(h, w)
+
+
+def find_tinted_regions(gnorm: np.ndarray, min_area: float = 0.003
+                        ) -> list[tuple[tuple[int, int, int, int], float, float]]:
+    """Flat regions noticeably darker than the *local* paper: tinted code
+    panels and sidebars, pastel diagrams, light photos.
+
+    Returns ``[(box, fill_ratio, tone_std)]`` in full-resolution pixels. A
+    filled rectangle (panel) has fill ~1; a diagram made of shapes has less.
+    ``tone_std`` is the spread of the (text-free) tint: ~0 for a flat panel,
+    large for photos and gradients.
+    """
+    h, w = gnorm.shape
+    sc = 0.25
+    small = cv2.resize(gnorm, (max(1, int(w * sc)), max(1, int(h * sc))), interpolation=cv2.INTER_AREA)
+    # Local *max* over ~1 text line: inside prose the brightest pixel is always
+    # paper (inter-line gaps), inside a tinted panel/shape even the brightest
+    # pixel stays tinted. Then a median removes speckle.
+    small = cv2.medianBlur(cv2.dilate(small, np.ones((9, 9), np.uint8)), 5).astype(np.float32)
+    paper = _paper_surface(small)
+    tint = ((small > 120) & (small < paper - 10)).astype(np.uint8) * 255
+    tint = cv2.morphologyEx(tint, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
+    tint = cv2.morphologyEx(tint, cv2.MORPH_CLOSE, np.ones((9, 9), np.uint8))
+    out = []
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(tint, connectivity=8)
+    sh, sw = tint.shape
+    for i in range(1, n):
+        x, y, cw, ch, area = stats[i]
+        if area < min_area * small.size or cw * ch > 0.6 * small.size:
+            continue
+        mx, my = max(2, int(0.02 * sw)), max(2, int(0.02 * sh))
+        if x <= mx or y <= my or x + cw >= sw - mx or y + ch >= sh - my:
+            continue  # at the scan edge: shadow / rotated-canvas wedge, not content
+        tone = small[labels == i]
+        out.append(((int(x / sc), int(y / sc), int((x + cw) / sc), int((y + ch) / sc)),
+                    area / float(cw * ch), float(np.std(tone))))
+    return out
+
+
+def is_panel(box, fill: float, page_w: int, dpi: int, tone_std: float = 0.0) -> bool:
+    """A tinted region that is a text panel (code listing / sidebar background):
+    a filled, wide, reasonably tall rectangle with a *uniform* tint (photos
+    and charts vary in tone)."""
+    return (fill >= 0.8 and tone_std < 9.0 and (box[2] - box[0]) > 0.3 * page_w
+            and (box[3] - box[1]) > 0.25 * dpi)
+
+
+def find_figure_regions(gnorm: np.ndarray, ink: np.ndarray, dpi: int = 300) -> list[tuple[int, int, int, int]]:
     """Locate photos / halftones / diagrams that must NOT be binarised.
 
     ``gnorm`` must be *globally* normalised (see ``global_normalize``).
@@ -514,8 +579,13 @@ def find_figure_regions(gnorm: np.ndarray, ink: np.ndarray) -> list[tuple[int, i
 
     boxes: list[tuple[int, int, int, int]] = []
     n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    mh, mw = mask.shape
     for i in range(1, n):
         x, y, cw, ch, area = stats[i]
+        ex, ey = max(2, int(0.02 * mw)), max(2, int(0.02 * mh))
+        touches = x <= ex or y <= ey or x + cw >= mw - ex or y + ch >= mh - ey
+        if touches and area / float(mh * mw) < 0.10:
+            continue  # scanner shadow / rotated-canvas wedge in a corner
         if area / (mask.shape[0] * mask.shape[1]) > 0.01:
             boxes.append((int(x / scale), int(y / scale), int((x + cw) / scale), int((y + ch) / scale)))
 
@@ -529,6 +599,14 @@ def find_figure_regions(gnorm: np.ndarray, ink: np.ndarray) -> list[tuple[int, i
         if box_area / page_area > 0.04 and cw > 0.15 * mask.shape[1] and ch > 0.08 * mask.shape[0]:
             boxes.append((int(x / scale), int(y / scale), int((x + cw) / scale), int((y + ch) / scale)))
 
+    # Tinted regions (pastel diagrams, shaded panels). Shaded *text* panels are
+    # recognised later by the layout engine (they are full of OCR words) and
+    # turned back into text frames; here they are just kept unbinarised,
+    # which preserves the panel's look in Mode A.
+    # Filled rectangles (fill >= 0.8) are text panels: handled separately.
+    tinted = [b for b, fill, sd in find_tinted_regions(gnorm) if not is_panel(b, fill, w, dpi, sd)]
+    tinted = _merge_boxes(tinted, pad=int(0.03 * max(h, w)), limit=(w, h)) if tinted else []
+    boxes.extend(b for b in tinted if (b[2] - b[0]) * (b[3] - b[1]) > 0.01 * page_area)
     return _merge_boxes(boxes, pad=int(0.005 * max(h, w)), limit=(w, h))
 
 
@@ -601,12 +679,19 @@ def enhance(rgb: np.ndarray, gray: np.ndarray, dpi: int, cfg: PipelineConfig) ->
     window = max(15, int(dpi / 10) | 1)
     ink = sauvola(stretched, window, k=0.18 + 0.04 * (s - 1.0))
     ink[stretched > 245] = 0          # never ink on near-white paper
-    ink[stretched < 60] = 255         # always ink on very dark strokes
+    # Sauvola hollows out strokes thicker than its window (big bold headings,
+    # chapter titles): anything clearly darker than the global Otsu split is
+    # always ink, so solid strokes stay solid; Sauvola still rescues faint ones.
+    otsu, _ = cv2.threshold(stretched, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
+    ink[stretched < min(0.75 * otsu, 120)] = 255
     ink = _remove_scan_borders(ink)
     ink = _remove_specks(ink, min_area=max(3, int(6 * (dpi / 300.0) ** 2)))
 
     gnorm = global_normalize(gray)
-    figures = find_figure_regions(gnorm, ink)
+    figures = find_figure_regions(gnorm, ink, dpi)
+    panels = [b for b, fill, sd in find_tinted_regions(gnorm, min_area=0.004)
+              if is_panel(b, fill, gray.shape[1], dpi, sd)]
+    figures = [f for f in figures if not any(_box_overlap(f, p) > 0.6 for p in panels)]
     if figures:
         # Ruled tables form big line-art components too, but they are text and
         # must be binarised / re-typeset, not kept as pictures.
@@ -650,7 +735,16 @@ def enhance(rgb: np.ndarray, gray: np.ndarray, dpi: int, cfg: PipelineConfig) ->
                 out[y0:y1, x0:x1] = clahe.apply(gnorm[y0:y1, x0:x1])
         bilevel = False
 
-    return EnhanceResult(image=out, ink=ink, figure_boxes=figures, bilevel=bilevel)
+    # Tinted text panels (code listings, sidebars): text is binarised like the
+    # rest of the page, then the panel's tint is painted back underneath so
+    # Mode A keeps the original look (and OCR still sees crisp text).
+    if panels:
+        if out.ndim == 2:
+            for x0, y0, x1, y1 in panels:
+                region = out[y0:y1, x0:x1]
+                region[ink[y0:y1, x0:x1] == 0] = 236
+        bilevel = False
+    return EnhanceResult(image=out, ink=ink, figure_boxes=figures, bilevel=bilevel, gray=gnorm, panels=panels)
 
 
 # =============================================================================
@@ -712,6 +806,8 @@ def process_page(task: PageTask) -> PageResult:
 
     t0 = time.perf_counter()
     cfg = task.config
+    if cfg.tessdata_dir:
+        os.environ["TESSDATA_PREFIX"] = cfg.tessdata_dir  # e.g. tessdata_best models
     stem = os.path.join(task.work_dir, f"page_{task.index:05d}")
     res = PageResult(index=task.index, dpi=cfg.dpi)
 

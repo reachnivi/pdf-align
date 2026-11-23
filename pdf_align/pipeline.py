@@ -19,12 +19,14 @@ from __future__ import annotations
 import logging
 import multiprocessing as mp
 import os
+import re
 import sys
 import tempfile
 import time
 from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from concurrent.futures import TimeoutError as FutureTimeout  # distinct from builtin on 3.10
 from concurrent.futures.process import BrokenProcessPool
+from dataclasses import replace
 from typing import Callable, Iterable, Optional
 
 import pymupdf as fitz
@@ -206,6 +208,8 @@ def run_pipeline(input_path: str, output_path: str, config: Optional[PipelineCon
     cfg = (config or PipelineConfig()).validated()
     t_start = time.perf_counter()
     cb = progress_cb or (lambda *a: None)
+    if cfg.mode == "B" and not cfg.title:
+        cfg = replace(cfg, title=guess_title(input_path))
 
     with tempfile.TemporaryDirectory(prefix="pdfalign_") as work_dir:
         src, n_pages = inspect_pdf(input_path, work_dir)
@@ -238,12 +242,29 @@ def run_pipeline(input_path: str, output_path: str, config: Optional[PipelineCon
                     _cleanup_page_files(r)
                 next_idx = next(order, None)
 
-        cb(total, total, "Assembling final PDF…", None)
+        cb(total, total, "Typesetting the book…" if cfg.mode == "B" else "Assembling final PDF…", None)
         builder.close()
+        report.warning = getattr(builder, "warning", "")
     # work_dir (all page images / JSON / partial PDFs) is gone at this point.
     report.seconds = time.perf_counter() - t_start
     cb(total, total, f"Done in {report.seconds:.1f}s", None)
     return report
+
+
+def guess_title(path: str) -> str:
+    """Book title from PDF metadata, else a tidied file name."""
+    try:
+        with fitz.open(path) as d:
+            t = (d.metadata or {}).get("title", "").strip()
+        if t and len(t) > 3 and not t.lower().endswith((".pdf", ".tif", ".doc")) and "untitled" not in t.lower():
+            return t
+    except Exception:  # noqa: BLE001
+        pass
+    stem = os.path.splitext(os.path.basename(path))[0]
+    stem = re.sub(r"^in_[0-9a-f]{16}$", "", stem)  # UI temp names
+    stem = re.sub(r"[_\-.]+", " ", stem).strip()
+    stem = re.sub(r"\b(scan(ned)?|ocr|final|v\d+)\b", "", stem, flags=re.I).strip()
+    return stem.title() if stem else "Untitled"
 
 
 def _cleanup_page_files(r: PageResult) -> None:

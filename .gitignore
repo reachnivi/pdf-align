@@ -8,3 +8,6 @@ venv/
 # local test inputs / outputs
 *.pdf
 !tests/fixtures/*.pdf
+
+# your own scans for tuning (never committed)
+samples/

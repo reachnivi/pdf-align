@@ -1,9 +1,11 @@
 FROM python:3.12-slim
 
-# System dependencies: Tesseract (+ orientation model) and a Unicode font.
-# PyMuPDF renders PDFs natively, so Poppler is NOT required.
+# System dependencies: Tesseract (+ orientation model), Pango for the book
+# typesetter (WeasyPrint) and a Unicode font. PyMuPDF renders PDFs natively,
+# so Poppler is NOT required.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr tesseract-ocr-eng tesseract-ocr-osd fonts-dejavu-core \
+        libpango-1.0-0 libpangoft2-1.0-0 libharfbuzz-subset0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

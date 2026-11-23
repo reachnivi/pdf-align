@@ -38,7 +38,7 @@ def test_mode_a_searchable_and_clean(scanned_pdf, tmp_path):
 
 def test_mode_b_reflow(scanned_pdf, tmp_path):
     out = tmp_path / "b.pdf"
-    rep = run_pipeline(scanned_pdf, str(out), PipelineConfig(mode="B", page_size="A4", dpi=200, workers=2))
+    rep = run_pipeline(scanned_pdf, str(out), PipelineConfig(mode="B", trim="A4", dpi=200, workers=2))
     assert not rep.errors
     with fitz.open(out) as doc:
         assert abs(doc[0].rect.width - 595.3) < 1

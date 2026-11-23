@@ -30,6 +30,7 @@ class Word:
 class Line:
     words: list[Word]
     bbox: BBox
+    ink: float = 0.0          # ink density inside the line box (bold detection)
 
     @property
     def text(self) -> str:
@@ -50,6 +51,8 @@ class Block:
     # For figures: path of a cropped PNG on disk
     image_path: Optional[str] = None
     level: int = 0                       # heading level (1 = biggest)
+    frame: Optional[str] = None          # "shaded" panel / "boxed" rule frame around the block
+    code: Optional[str] = None           # verbatim text for code blocks (grid-reconstructed)
 
     @property
     def text(self) -> str:
@@ -66,6 +69,8 @@ class PageLayout:
     # Every OCR word on the page (including words inside tables/figures that
     # are not part of the text flow). Used for Mode A's invisible text layer.
     ocr_words: list[Word] = field(default_factory=list)
+    # Body-text statistics measured on this page (pixels).
+    dpi: int = 300
 
     # ---- (de)serialisation ------------------------------------------------
     def to_json(self) -> str:
@@ -77,7 +82,7 @@ class PageLayout:
         for b in d.get("blocks", []):
             lines = [
                 Line(words=[Word(**{**w, "bbox": tuple(w["bbox"])}) for w in l["words"]],
-                     bbox=tuple(l["bbox"]))
+                     bbox=tuple(l["bbox"]), ink=l.get("ink", 0.0))
                 for l in b.get("lines", [])
             ]
             blocks.append(
@@ -88,6 +93,8 @@ class PageLayout:
                     cells=b.get("cells"),
                     image_path=b.get("image_path"),
                     level=b.get("level", 0),
+                    frame=b.get("frame"),
+                    code=b.get("code"),
                 )
             )
         return PageLayout(
@@ -97,6 +104,7 @@ class PageLayout:
             median_line_height=d.get("median_line_height", 0.0),
             columns=d.get("columns", 1),
             ocr_words=[Word(**{**w, "bbox": tuple(w["bbox"])}) for w in d.get("ocr_words", [])],
+            dpi=d.get("dpi", 300),
         )
 
     @staticmethod
@@ -138,6 +146,7 @@ class Report:
     pages: list[PageResult] = field(default_factory=list)
     output_path: str = ""
     seconds: float = 0.0
+    warning: str = ""
 
     @property
     def total(self) -> int:

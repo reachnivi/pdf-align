@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="{{ lang }}">
+<head>
+  <meta charset="utf-8">
+  <title>{{ book.title or "Untitled" }}</title>
+  {% if book.author %}<meta name="author" content="{{ book.author }}">{% endif %}
+  <meta name="generator" content="pdf-align">
+  <style>{{ css | safe }}</style>
+</head>
+<body class="trim-{{ trim_class }}{% if not chapters_on_right %} any-side{% endif %}">
+
+{# ------------------------------------------------------------ title page #}
+{% if front_matter %}
+<section class="titlepage">
+  <div class="tp-rule"></div>
+  <h1 class="book-title">{{ book.title or "Untitled" }}</h1>
+  {% if book.author %}<p class="book-author">{{ book.author }}</p>{% endif %}
+  <p class="book-note">Re-typeset edition</p>
+</section>
+{% endif %}
+
+{# ------------------------------------------------------------ contents #}
+{% if toc and front_matter %}
+<nav class="toc">
+  <h1 class="toc-title">Contents</h1>
+  <ol class="toc-list">
+  {% for ch in toc %}
+    <li class="toc-ch"><a href="#{{ ch.id }}"><span class="toc-num">{{ ch.number }}</span>{{ ch.title }}</a>
+      {% if ch.sections %}
+      <ol>{% for s in ch.sections %}
+        <li class="toc-l{{ s.level }}"><a href="#{{ s.id }}">{% if s.number %}<span class="toc-snum">{{ s.number }}</span>{% endif %}{{ s.title }}</a></li>
+      {% endfor %}</ol>
+      {% endif %}
+    </li>
+  {% endfor %}
+  </ol>
+</nav>
+{% endif %}
+
+{# ------------------------------------------------------------ body #}
+{% for sec in sections %}
+<section class="{{ 'chapter' if sec.chapter else 'frontmatter' }}"{% if sec.chapter %} id="{{ sec.id }}"{% endif %}>
+  {% if sec.chapter %}
+  <header class="opener">
+    <div class="ch-label">Chapter {{ sec.chapter.number }}</div>
+    <h1 data-runhead="Chapter {{ sec.chapter.number }}. {{ sec.chapter.text }}">{{ sec.chapter.text }}</h1>
+  </header>
+  {% endif %}
+  {% for n in sec.nodes %}
+    {% if n.kind == 'para' %}
+  <p>{{ n.text }}</p>
+    {% elif n.kind == 'heading' %}
+  <h{{ n.level }} id="{{ n.id }}" data-runhead="{{ (n.number ~ ' ') if n.number }}{{ n.text }}">{% if n.number %}<span class="secnum">{{ n.number }}</span>{% endif %}{{ n.text }}</h{{ n.level }}>
+    {% elif n.kind == 'list' %}
+  <{{ 'ol' if n.ordered else 'ul' }}>{% for it in n.items %}<li>{{ it }}</li>{% endfor %}</{{ 'ol' if n.ordered else 'ul' }}>
+    {% elif n.kind == 'code' %}
+  <div class="listing">
+    {% if n.caption %}<div class="listing-caption"><span class="cap-label">{{ n.label }} {{ n.number }}</span> {{ n.caption_text }}</div>{% endif %}
+    <pre class="code">{{ n.text }}</pre>
+  </div>
+    {% elif n.kind == 'callout' %}
+  <aside class="callout callout-{{ (n.label or 'sidebar') | lower }}">
+    {% if n.label %}<div class="callout-label">{{ n.label }}</div>{% endif %}
+    <p>{{ n.text }}</p>
+  </aside>
+    {% elif n.kind == 'figure' %}
+  <figure>
+    <img src="{{ n.src_url }}" alt="{{ n.caption_text or 'Figure' }}">
+    {% if n.caption %}<figcaption><span class="cap-label">{{ n.label }} {{ n.number }}</span> {{ n.caption_text }}</figcaption>{% endif %}
+  </figure>
+    {% elif n.kind == 'table' %}
+  <table>
+    {% if n.caption %}<caption><span class="cap-label">{{ n.label }} {{ n.number }}</span> {{ n.caption_text }}</caption>{% endif %}
+    <thead><tr>{% for c in n.rows[0] %}<th>{{ c }}</th>{% endfor %}</tr></thead>
+    <tbody>{% for r in n.rows[1:] %}<tr>{% for c in r %}<td>{{ c }}</td>{% endfor %}</tr>{% endfor %}</tbody>
+  </table>
+    {% endif %}
+  {% endfor %}
+</section>
+{% endfor %}
+</body>
+</html>

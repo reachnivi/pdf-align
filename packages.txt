@@ -2,3 +2,6 @@ tesseract-ocr
 tesseract-ocr-eng
 tesseract-ocr-osd
 fonts-dejavu-core
+libpango-1.0-0
+libpangoft2-1.0-0
+libharfbuzz-subset0

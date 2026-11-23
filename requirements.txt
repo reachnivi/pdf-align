@@ -4,7 +4,13 @@ opencv-python-headless>=4.9
 numpy>=1.26
 Pillow>=10.0
 pytesseract>=0.3.10      # needs the `tesseract` binary, see README
-reportlab>=4.1           # Mode B re-typesetting
+reportlab>=4.1           # Mode B fallback layout (no native deps)
+
+# Mode B book typesetting
+weasyprint>=62           # CSS paged media -> PDF (needs Pango, see README)
+pyphen>=0.14             # hyphenation dictionaries
+jinja2>=3.1
+symspellpy>=6.7          # conservative OCR word repair
 
 # Web UI
 streamlit>=1.46

@@ -22,6 +22,15 @@ class PipelineConfig:
     page_size: PageSize = "original"    # Mode A: fit onto A4/Letter or keep scan size
     jpeg_quality: int = 80              # Mode A: image compression (0 => lossless PNG)
 
+    # --- Mode B: book typesetting ---------------------------------------
+    trim: str = "7x9.19in"              # 7x9.19in | 7.375x9.25in | A4 | Letter
+    title: str = ""                     # defaults to PDF metadata / file name
+    author: str = ""
+    chapters_on_right: bool = True      # chapter openers on recto pages
+    front_matter: bool = True           # title page + table of contents
+    spellfix: bool = True               # conservative OCR word repair (prose only)
+    html_out: str = ""                  # also write the intermediate HTML here
+
     # --- rasterisation --------------------------------------------------
     dpi: int = 300
 
@@ -38,6 +47,7 @@ class PipelineConfig:
     ocr_engine: str = "tesseract"       # "tesseract" | "surya"
     ocr_lang: str = "eng"
     ocr_dpi: int = 300                  # OCR is run on an image at this DPI
+    tessdata_dir: str = ""              # e.g. a tessdata_best folder (more accurate models)
 
     # --- performance ----------------------------------------------------
     batch_size: int = 8
